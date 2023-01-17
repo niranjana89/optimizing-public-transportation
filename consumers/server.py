@@ -11,7 +11,7 @@ import tornado.web
 # Import logging before models to ensure configuration is picked up
 logging.config.fileConfig(f"{Path(__file__).parents[0]}/logging.ini")
 
-
+import ksql
 from consumer import KafkaConsumer
 from models import Lines, Weather
 import topic_check
@@ -41,6 +41,8 @@ class MainHandler(tornado.web.RequestHandler):
 
 def run_server():
     """Runs the Tornado Server and begins Kafka consumption"""
+    # Configure KSQL
+    ksql.execute_statement()
     if topic_check.topic_exists("TURNSTILE_SUMMARY") is False:
         logger.fatal(
             "Ensure that the KSQL Command has run successfully before running the web server!"
@@ -51,16 +53,18 @@ def run_server():
             "Ensure that Faust Streaming is running successfully before running the web server!"
         )
         exit(1)
-
+        
+    logger.debug("call weather model")
     weather_model = Weather()
     lines = Lines()
 
     application = tornado.web.Application(
-        [(r"/", MainHandler, {"weather": weather_model, "lines": lines})]
+        [(r"/", MainHandler, { "weather":weather_model, "lines": lines})]
     )
-    application.listen(8888)
+    application.listen(3000)
 
     # Build kafka consumers
+    logger.debug("Building consumers")
     consumers = [
         KafkaConsumer(
             "org.chicago.cta.weather.v1",
@@ -85,14 +89,16 @@ def run_server():
             is_avro=False,
         ),
     ]
+    
 
     try:
         logger.info(
-            "Open a web browser to http://localhost:8888 to see the Transit Status Page"
+            "Click on the Preview button to see the Transit Status Page"
+            "If running locally - Open a web browser to http://localhost:3000 to see the Transit Status Page"
         )
         for consumer in consumers:
             tornado.ioloop.IOLoop.current().spawn_callback(consumer.consume)
-
+            
         tornado.ioloop.IOLoop.current().start()
     except KeyboardInterrupt as e:
         logger.info("shutting down server")
